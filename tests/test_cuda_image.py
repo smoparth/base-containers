@@ -70,4 +70,3 @@ def test_cuda_version_label(cuda_container):
 def test_accelerator_label_cuda(cuda_container):
     """Verify accelerator label is 'cuda' for CUDA image."""
     assert cuda_container.get_labels().get("com.opendatahub.accelerator") == "cuda"
-

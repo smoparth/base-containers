@@ -30,7 +30,7 @@ class ContainerRunner:
 
     def __init__(self, image: str):
         self.image = image
-        self.container_id = None
+        self.container_id: str | None = None
 
     def start(self):
         """Start container in background with sleep infinity."""
@@ -39,6 +39,7 @@ class ContainerRunner:
             capture_output=True,
             text=True,
             timeout=60,
+            check=False,
         )
         if result.returncode != 0:
             raise RuntimeError(f"Failed to start container: {result.stderr}")
@@ -51,6 +52,7 @@ class ContainerRunner:
                 ["podman", "stop", "-t", "1", self.container_id],
                 capture_output=True,
                 timeout=30,
+                check=False,
             )
             self.container_id = None
 
@@ -63,6 +65,7 @@ class ContainerRunner:
             capture_output=True,
             text=True,
             timeout=timeout,
+            check=False,
         )
 
     def get_env(self, var: str) -> str:
@@ -89,10 +92,12 @@ class ContainerRunner:
             capture_output=True,
             text=True,
             timeout=30,
+            check=False,
         )
         if result.returncode == 0:
             try:
-                return json.loads(result.stdout)
+                labels: dict[str, str] = json.loads(result.stdout)
+                return labels
             except json.JSONDecodeError:
                 return {}
         return {}
@@ -104,10 +109,12 @@ class ContainerRunner:
             capture_output=True,
             text=True,
             timeout=30,
+            check=False,
         )
         if result.returncode == 0:
             try:
-                return json.loads(result.stdout)
+                value: str | None = json.loads(result.stdout)
+                return value
             except json.JSONDecodeError:
                 return None
         return None
@@ -117,10 +124,7 @@ def _get_required_env(var: str, example: str) -> str:
     """Get a required environment variable or raise with helpful message."""
     value = os.environ.get(var)
     if not value:
-        pytest.skip(
-            f"{var} environment variable not set. "
-            f"Example: {var}={example} pytest tests/"
-        )
+        pytest.skip(f"{var} environment variable not set. Example: {var}={example} pytest tests/")
     return value
 
 
@@ -174,4 +178,3 @@ def cuda_container(cuda_image):
     runner.start()
     yield runner
     runner.stop()
-

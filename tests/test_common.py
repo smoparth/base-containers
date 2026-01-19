@@ -65,7 +65,7 @@ def test_not_root(container):
 
 def test_workdir_writable(container):
     """Verify working directory is writable by the container user."""
-    result = container.run(f"f=$(mktemp {WORKDIR}/.writetest.XXXXXX) && rm \"$f\"")
+    result = container.run(f'f=$(mktemp {WORKDIR}/.writetest.XXXXXX) && rm "$f"')
     assert result.returncode == 0
 
 
@@ -146,4 +146,3 @@ def test_shadow_not_readable(container):
     """Verify /etc/shadow is not readable by container user."""
     result = container.run("cat /etc/shadow")
     assert result.returncode != 0
-

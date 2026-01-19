@@ -47,4 +47,3 @@ def test_python_version_label(python_container):
     python_version = labels.get("com.opendatahub.python", "")
     assert python_version, "Python version label should be set"
     assert "3.12" in python_version, f"Expected Python 3.12, got: {python_version}"
-
