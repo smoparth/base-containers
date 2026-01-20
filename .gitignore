@@ -13,10 +13,13 @@ __pycache__/
 venv/
 ENV/
 
-# pytest
+# Testing & Linting
 .pytest_cache/
 .coverage
 htmlcov/
+.mypy_cache/
+.ruff_cache/
+.tox/
 
 # IDE
 .idea/

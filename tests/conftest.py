@@ -86,7 +86,11 @@ class ContainerRunner:
         return result.returncode == 0
 
     def get_labels(self) -> dict[str, str]:
-        """Get image labels using podman inspect."""
+        """Get image labels using podman inspect.
+
+        Returns an empty dict if labels are null/missing or not a dict,
+        ensuring callers can safely use .get() on the result.
+        """
         result = subprocess.run(
             ["podman", "inspect", "--format", "{{json .Config.Labels}}", self.image],
             capture_output=True,
@@ -96,8 +100,11 @@ class ContainerRunner:
         )
         if result.returncode == 0:
             try:
-                labels: dict[str, str] = json.loads(result.stdout)
-                return labels
+                parsed = json.loads(result.stdout)
+                # podman can return null (None) if no labels exist
+                if isinstance(parsed, dict):
+                    return parsed
+                return {}
             except json.JSONDecodeError:
                 return {}
         return {}
