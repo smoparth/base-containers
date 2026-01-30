@@ -224,6 +224,7 @@ RUN dnf clean all && \
 ARG BUILD_DATE
 ARG VCS_REF
 ARG VERSION
+ARG PYTHON_VERSION
 
 LABEL name="odh-midstream-cuda-base" \
       version="${VERSION}" \
@@ -244,7 +245,7 @@ LABEL name="odh-midstream-cuda-base" \
       com.nvidia.cudnn.version="${NV_CUDNN_VERSION}" \
       com.nvidia.nccl.version="${NCCL_VERSION}" \
       com.opendatahub.accelerator="cuda" \
-      com.opendatahub.python="3.12"
+      com.opendatahub.python="${PYTHON_VERSION}"
 
 # -----------------------------------------------------------------------------
 # User Configuration (from notebooks pattern)
