@@ -41,7 +41,8 @@ base-containers/
 │   └── fix-permissions                   # OpenShift permission fixer
 ├── .github/
 │   └── workflows/
-│       └── ci.yml                        # CI workflow (Hadolint, tests)
+│       ├── ci.yml                        # CI workflow (Hadolint, tests)
+│       └── check-cuda-versions.yml       # Auto-detect new CUDA versions
 └── docs/
     └── RATIONALE.md
 ```
@@ -147,6 +148,26 @@ Config files in `<type>/<version>/app.conf` are passed directly to podman via `-
 **Updating versions:** Edit the appropriate `app.conf` file and run `./scripts/build.sh <type>-<version>` to test.
 
 **Updating all versions:** When changing template files, regenerate all version-specific Containerfiles.
+
+## Automated Version Detection
+
+The repository includes a GitHub Actions workflow that automatically detects new CUDA versions from NVIDIA's container images repository.
+
+### How It Works
+
+The `check-cuda-versions.yml` workflow:
+1. **Runs weekly** (Monday 9:00 AM UTC) and on manual trigger
+2. **Fetches versions** from [NVIDIA's GitLab repository](https://gitlab.com/nvidia/container-images/cuda/-/tree/master/dist)
+3. **Compares** with local `cuda/*/` directories
+4. **Creates issues** for missing versions (≥ 12.8) with instructions for adding support
+5. **Skips duplicates** if an issue already exists for a version
+
+### Manual Trigger
+
+To manually check for new versions:
+1. Go to **Actions** → **Check CUDA Versions**
+2. Click **Run workflow**
+3. Optionally enable **Dry run** to preview without creating issues
 
 ## Things to Avoid
 
