@@ -1,0 +1,247 @@
+name: Check CUDA Versions
+
+# Automatically detects new CUDA versions from NVIDIA's container images
+# repository and creates GitHub issues when new versions are available.
+#
+# Runs:
+#   - Weekly on Monday at 9:00 AM UTC
+#   - On manual trigger (workflow_dispatch)
+
+on:
+  schedule:
+    # Run every Monday at 9:00 AM UTC
+    - cron: "0 9 * * 1"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Dry run (don't create issues)"
+        required: false
+        default: false
+        type: boolean
+
+# Limit concurrent runs to prevent duplicate issues
+concurrency:
+  group: check-cuda-versions
+  cancel-in-progress: true
+
+jobs:
+  check-versions:
+    name: Check for New CUDA Versions
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    defaults:
+      run:
+        shell: bash -euo pipefail {0}
+
+    permissions:
+      issues: write
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Get local CUDA versions
+        id: local
+        run: |
+          # List all CUDA version directories we currently support
+          # Using find with -print0 and sort -zV for safe handling of any filenames
+          LOCAL_VERSIONS=$(find cuda -mindepth 1 -maxdepth 1 -type d -printf '%f\0' 2>/dev/null | \
+            sort -zV | tr '\0' ' ' || echo "")
+          echo "versions=${LOCAL_VERSIONS}" >> "$GITHUB_OUTPUT"
+          echo "Local CUDA versions: ${LOCAL_VERSIONS}"
+
+      - name: Fetch NVIDIA CUDA versions
+        id: nvidia
+        run: |
+          # Minimum CUDA version to track (per issue #21 requirements)
+          MIN_MAJOR=12
+          MIN_MINOR=8
+
+          # Fetch directory listing from NVIDIA's GitLab repository
+          # API: https://gitlab.com/api/v4/projects/{project_id}/repository/tree
+          # Project: nvidia/container-images/cuda
+          # Source: https://gitlab.com/nvidia/container-images/cuda/-/tree/master/dist
+          #
+          # We use URL-encoded project path (more stable than numeric ID)
+          # Fallback to numeric ID if path-based lookup fails
+
+          echo "Fetching CUDA versions from NVIDIA GitLab..."
+
+          # Primary: URL-encoded project path (stable even if project is moved)
+          NVIDIA_PROJECT_PATH="nvidia%2Fcontainer-images%2Fcuda"
+          # Fallback: Numeric project ID (can change if project is recreated)
+          NVIDIA_PROJECT_ID="2330984"
+
+          API_BASE="https://gitlab.com/api/v4/projects"
+
+          # Try URL-encoded path first (more stable)
+          RESPONSE=$(curl -sf --retry 3 --retry-delay 5 \
+            "${API_BASE}/${NVIDIA_PROJECT_PATH}/repository/tree?path=dist&per_page=100" || echo "")
+
+          # Fallback to numeric ID if path-based lookup fails
+          if [[ -z "${RESPONSE}" || "${RESPONSE}" == "[]" ]]; then
+            echo "Path-based lookup failed, trying numeric project ID..."
+            RESPONSE=$(curl -sf --retry 3 --retry-delay 5 \
+              "${API_BASE}/${NVIDIA_PROJECT_ID}/repository/tree?path=dist&per_page=100" || echo "[]")
+          fi
+
+          if [[ -z "${RESPONSE}" || "${RESPONSE}" == "[]" ]]; then
+            echo "::error::Failed to fetch NVIDIA CUDA versions from GitLab API"
+            exit 1
+          fi
+
+          # Extract version directories (format: X.Y.Z)
+          # Filter to directories only, extract names matching version pattern
+          # Use intermediate variable for better error handling with pipefail
+          if ! ALL_VERSIONS=$(echo "${RESPONSE}" | jq -r '.[] | select(.type == "tree") | .name' | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' | sort -V); then
+            echo "::error::Failed to parse NVIDIA CUDA versions from API response"
+            exit 1
+          fi
+
+          echo "All NVIDIA CUDA versions found:"
+          echo "${ALL_VERSIONS}"
+
+          # Filter to unique major.minor versions >= MIN_MAJOR.MIN_MINOR
+          # e.g., 12.8 from 12.8.0, 12.8.1, etc.
+          AVAILABLE_VERSIONS=""
+          SEEN_VERSIONS=""
+
+          for version in ${ALL_VERSIONS}; do
+            MAJOR=$(echo "${version}" | cut -d. -f1)
+            MINOR=$(echo "${version}" | cut -d. -f2)
+            MAJOR_MINOR="${MAJOR}.${MINOR}"
+
+            # Skip if already processed this major.minor
+            if echo "${SEEN_VERSIONS}" | grep -q " ${MAJOR_MINOR} "; then
+              continue
+            fi
+            SEEN_VERSIONS="${SEEN_VERSIONS} ${MAJOR_MINOR} "
+
+            # Check if version meets minimum requirement
+            if [[ "${MAJOR}" -gt "${MIN_MAJOR}" ]] || \
+               [[ "${MAJOR}" -eq "${MIN_MAJOR}" && "${MINOR}" -ge "${MIN_MINOR}" ]]; then
+              AVAILABLE_VERSIONS="${AVAILABLE_VERSIONS} ${MAJOR_MINOR}"
+            fi
+          done
+
+          AVAILABLE_VERSIONS=$(echo "${AVAILABLE_VERSIONS}" | xargs)
+          echo "NVIDIA CUDA versions >= ${MIN_MAJOR}.${MIN_MINOR}: ${AVAILABLE_VERSIONS}"
+          echo "available=${AVAILABLE_VERSIONS}" >> "$GITHUB_OUTPUT"
+
+      - name: Find missing versions
+        id: missing
+        env:
+          LOCAL_VERSIONS: ${{ steps.local.outputs.versions }}
+          NVIDIA_VERSIONS: ${{ steps.nvidia.outputs.available }}
+        run: |
+          echo "Comparing versions..."
+          echo "Local:  ${LOCAL_VERSIONS:-}"
+          echo "NVIDIA: ${NVIDIA_VERSIONS:-}"
+
+          MISSING=""
+          for version in ${NVIDIA_VERSIONS:-}; do
+            if ! echo " ${LOCAL_VERSIONS:-} " | grep -q " ${version} "; then
+              MISSING="${MISSING} ${version}"
+              echo "Missing: ${version}"
+            fi
+          done
+
+          MISSING=$(echo "${MISSING}" | xargs)
+
+          if [[ -z "${MISSING}" ]]; then
+            echo "No missing CUDA versions found."
+            echo "versions=" >> "$GITHUB_OUTPUT"
+            echo "count=0" >> "$GITHUB_OUTPUT"
+          else
+            echo "Missing versions: ${MISSING}"
+            echo "versions=${MISSING}" >> "$GITHUB_OUTPUT"
+            COUNT=$(echo "${MISSING}" | wc -w | xargs)
+            echo "count=${COUNT}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create issues for missing versions
+        if: steps.missing.outputs.count != '0'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          MISSING_VERSIONS: ${{ steps.missing.outputs.versions }}
+          DRY_RUN: ${{ inputs.dry_run || 'false' }}
+        run: |
+          for version in ${MISSING_VERSIONS:-}; do
+            echo "Processing CUDA ${version}..."
+
+            # Check if issue already exists (open or closed)
+            EXISTING=$(gh issue list \
+              --search "\"Add support for CUDA ${version}\" in:title" \
+              --state all \
+              --json number,title,state \
+              --jq ".[] | select(.title == \"Add support for CUDA ${version}\") | \"\(.number) (\(.state))\"" \
+              2>/dev/null | head -1 || echo "")
+
+            if [[ -n "${EXISTING}" ]]; then
+              echo "Issue already exists for CUDA ${version}: #${EXISTING}"
+              continue
+            fi
+
+            # Create issue body - keep high-level, link to docs for detailed steps
+            # Note: heredoc content is indented for YAML, sed strips 10 leading spaces
+            ISSUE_BODY=$(cat <<'EOF' | sed 's/^          //'
+          ## Summary
+
+          NVIDIA has released CUDA VERSION_PLACEHOLDER. We should add support for this version in our base containers.
+
+          ## References
+
+          - [Adding New CUDA Version Guide](AGENTS.md#adding-a-new-cuda-version)
+          - [NVIDIA CUDA Dockerfiles](https://gitlab.com/nvidia/container-images/cuda/-/tree/master/dist/VERSION_PLACEHOLDER)
+
+          ---
+          *This issue was automatically created by the check-cuda-versions workflow.*
+          EOF
+          )
+            # Replace placeholder with actual version
+            ISSUE_BODY="${ISSUE_BODY//VERSION_PLACEHOLDER/${version}}"
+
+            if [[ "${DRY_RUN}" == "true" ]]; then
+              echo "DRY RUN: Would create issue for CUDA ${version}"
+              echo "Title: Add support for CUDA ${version}"
+              echo "---"
+              echo "${ISSUE_BODY}"
+              echo "---"
+            else
+              # Create the issue (without labels to avoid failure if labels don't exist)
+              ISSUE_URL=$(gh issue create \
+                --title "Add support for CUDA ${version}" \
+                --body "${ISSUE_BODY}")
+
+              echo "Created issue for CUDA ${version}: ${ISSUE_URL}"
+            fi
+          done
+
+      - name: Summary
+        env:
+          LOCAL_VERSIONS: ${{ steps.local.outputs.versions }}
+          NVIDIA_VERSIONS: ${{ steps.nvidia.outputs.available }}
+          MISSING_VERSIONS: ${{ steps.missing.outputs.versions }}
+          MISSING_COUNT: ${{ steps.missing.outputs.count }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          echo "## CUDA Version Check Summary" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Category | Versions |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|----------|----------|" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Local | ${LOCAL_VERSIONS:-None} |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| NVIDIA (>= 12.8) | ${NVIDIA_VERSIONS:-None} |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Missing | ${MISSING_VERSIONS:-None} |" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+
+          if [[ "${MISSING_COUNT:-0}" != "0" ]]; then
+            if [[ "${DRY_RUN:-false}" == "true" ]]; then
+              echo "**Dry run mode**: No issues were created." >> "$GITHUB_STEP_SUMMARY"
+            else
+              echo "**Issues created** for missing versions." >> "$GITHUB_STEP_SUMMARY"
+            fi
+          else
+            echo "All tracked CUDA versions are supported." >> "$GITHUB_STEP_SUMMARY"
+          fi

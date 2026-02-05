@@ -1,0 +1,43 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "description": [
+    "Renovate config for base-containers, works with Konflux MintMaker",
+    "https://konflux.pages.redhat.com/docs/users/mintmaker/user.html"
+  ],
+  "extends": [
+    "config:recommended",
+    "docker:pinDigests"
+  ],
+  "labels": ["dependencies"],
+  "branchPrefix": "konflux/mintmaker/",
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "Update BASE_IMAGE in app.conf files",
+      "fileMatch": [
+        "(^|/)python/[^/]+/app\\.conf$",
+        "(^|/)cuda/[^/]+/app\\.conf$"
+      ],
+      "matchStrings": [
+        "BASE_IMAGE=(?<depName>[^:]+):(?<currentValue>[^@\\s]+)(@(?<currentDigest>sha256:[a-f0-9]+))?"
+      ],
+      "autoReplaceStringTemplate": "BASE_IMAGE={{depName}}:{{newValue}}{{#if newDigest}}@{{newDigest}}{{/if}}",
+      "datasourceTemplate": "docker",
+      "versioningTemplate": "docker"
+    }
+  ],
+  "packageRules": [
+    {
+      "description": "Base image updates for python/*/app.conf",
+      "matchManagers": ["custom.regex"],
+      "matchDepNames": ["registry.access.redhat.com/ubi9/python-312"],
+      "groupName": "ubi-python-image"
+    },
+    {
+      "description": "Base image updates for cuda/*/app.conf",
+      "matchManagers": ["custom.regex"],
+      "matchDepNames": ["quay.io/sclorg/python-312-c9s"],
+      "groupName": "sclorg-python-image"
+    }
+  ]
+}
