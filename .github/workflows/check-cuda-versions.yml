@@ -76,15 +76,54 @@ jobs:
 
           API_BASE="https://gitlab.com/api/v4/projects"
 
+          # Fetch all pages from a GitLab repository tree endpoint
+          # Args: $1 = project identifier (path or ID)
+          fetch_all_pages() {
+            local project_id="$1"
+            local url="${API_BASE}/${project_id}/repository/tree?path=dist&per_page=100"
+            local all_items="[]"
+            local page=1
+            local max_pages=10  # Safety limit: 10 pages × 100 items = 1000 max
+
+            while [[ ${page} -le ${max_pages} ]]; do
+              local response
+              response=$(curl -sf --retry 3 --retry-delay 5 "${url}&page=${page}" || echo "[]")
+
+              # Break if empty response or empty array
+              if [[ -z "${response}" || "${response}" == "[]" ]]; then
+                break
+              fi
+
+              local count
+              count=$(echo "${response}" | jq 'length')
+              if [[ "${count}" -eq 0 ]]; then
+                break
+              fi
+
+              # Merge into accumulated results
+              all_items=$(echo "${all_items}" "${response}" | jq -s 'add')
+              page=$((page + 1))
+
+              # If we got fewer than per_page items, this is the last page
+              if [[ "${count}" -lt 100 ]]; then
+                break
+              fi
+            done
+
+            if [[ ${page} -gt ${max_pages} ]]; then
+              echo "::warning::Pagination safety limit reached (${max_pages} pages)" >&2
+            fi
+
+            echo "${all_items}"
+          }
+
           # Try URL-encoded path first (more stable)
-          RESPONSE=$(curl -sf --retry 3 --retry-delay 5 \
-            "${API_BASE}/${NVIDIA_PROJECT_PATH}/repository/tree?path=dist&per_page=100" || echo "")
+          RESPONSE=$(fetch_all_pages "${NVIDIA_PROJECT_PATH}")
 
           # Fallback to numeric ID if path-based lookup fails
           if [[ -z "${RESPONSE}" || "${RESPONSE}" == "[]" ]]; then
             echo "Path-based lookup failed, trying numeric project ID..."
-            RESPONSE=$(curl -sf --retry 3 --retry-delay 5 \
-              "${API_BASE}/${NVIDIA_PROJECT_ID}/repository/tree?path=dist&per_page=100" || echo "[]")
+            RESPONSE=$(fetch_all_pages "${NVIDIA_PROJECT_ID}")
           fi
 
           if [[ -z "${RESPONSE}" || "${RESPONSE}" == "[]" ]]; then
