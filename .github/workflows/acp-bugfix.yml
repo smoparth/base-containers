@@ -1,0 +1,51 @@
+name: ACP Bug Fix
+
+on:
+  workflow_dispatch:
+    inputs:
+      issue_url:
+        description: "Full URL to the upstream issue (e.g. https://github.com/opendatahub-io/base-containers/issues/123)"
+        required: true
+        type: string
+      mode:
+        description: "Run mode"
+        required: false
+        default: "speedrun"
+        type: choice
+        options:
+          - speedrun
+          - interactive
+      model:
+        description: "Model to use (e.g. claude-sonnet-4-5-20250514, claude-opus-4-20250514)"
+        required: false
+        default: ""
+        type: string
+
+jobs:
+  bugfix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: ambient-code/ambient-action@v0.0.2
+        id: acp
+        with:
+          api-url: ${{ secrets.ACP_URL }}
+          api-token: ${{ secrets.ACP_TOKEN }}
+          project: fromager-fixes
+          display-name: "Bugfix: ${{ inputs.issue_url }}"
+          prompt: |
+            /${{ inputs.mode }} ${{ inputs.issue_url }}
+          repos: |
+            [{"url": "https://github.com/${{ github.repository }}", "branch": "main", "autoPush": true}]
+          workflow: |
+            {"gitUrl": "https://github.com/ambient-code/workflows", "branch": "main", "path": "workflows/bugfix"}
+          model: ${{ inputs.model }}
+          wait: true
+          timeout: 30
+
+      - name: Report result
+        if: always()
+        run: |
+          echo "### ACP Bugfix Result" >> $GITHUB_STEP_SUMMARY
+          echo "- **Session**: ${{ steps.acp.outputs.session-name }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Phase**: ${{ steps.acp.outputs.session-phase }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Issue**: ${{ inputs.issue_url }}" >> $GITHUB_STEP_SUMMARY
