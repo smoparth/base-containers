@@ -46,9 +46,9 @@ jobs:
         id: local
         run: |
           # List all CUDA version directories we currently support
-          # Using find with -print0 and sort -zV for safe handling of any filenames
-          LOCAL_VERSIONS=$(find cuda -mindepth 1 -maxdepth 1 -type d -printf '%f\0' 2>/dev/null | \
-            sort -zV | tr '\0' ' ' || echo "")
+          # Using POSIX-compliant find for portability (no GNU -printf)
+          LOCAL_VERSIONS=$(find cuda -mindepth 1 -maxdepth 1 -type d -exec basename {} \; 2>/dev/null | \
+            sort -V | tr '\n' ' ' || echo "")
           echo "versions=${LOCAL_VERSIONS}" >> "$GITHUB_OUTPUT"
           echo "Local CUDA versions: ${LOCAL_VERSIONS}"
 

@@ -93,10 +93,10 @@ find_latest_version() {
 
     local latest
     if [[ -n "${exclude}" ]]; then
-        latest=$(find "${type_dir}" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' \
+        latest=$(find "${type_dir}" -mindepth 1 -maxdepth 1 -type d -exec basename {} \; \
             | grep -v "^${exclude}$" | sort -V | tail -1) || true
     else
-        latest=$(find "${type_dir}" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' \
+        latest=$(find "${type_dir}" -mindepth 1 -maxdepth 1 -type d -exec basename {} \; \
             | sort -V | tail -1) || true
     fi
 
