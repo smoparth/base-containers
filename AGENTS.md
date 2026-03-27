@@ -7,7 +7,7 @@ This repository provides standardized Containerfiles for building Open Data Hub 
 | Image  | Base OS          | Versions               |
 |--------|------------------|------------------------|
 | Python | UBI 9            | 3.12                   |
-| CUDA   | CentOS Stream 9  | 12.8, 12.9, 13.0, 13.1 |
+| CUDA   | CentOS Stream 9  | 12.8, 12.9, 13.0, 13.1, 13.2 |
 
 ## Repository Structure
 
@@ -23,7 +23,10 @@ base-containers/
 │   ├── 13.0/
 │   │   ├── Containerfile
 │   │   └── app.conf
-│   └── 13.1/
+│   ├── 13.1/
+│   │   ├── Containerfile
+│   │   └── app.conf
+│   └── 13.2/
 │       ├── Containerfile
 │       └── app.conf
 ├── python/                               # Python version directories
@@ -68,6 +71,7 @@ base-containers/
 ./scripts/build.sh cuda-12.9              # Build CUDA 12.9 image
 ./scripts/build.sh cuda-13.0              # Build CUDA 13.0 image
 ./scripts/build.sh cuda-13.1              # Build CUDA 13.1 image
+./scripts/build.sh cuda-13.2              # Build CUDA 13.2 image
 ./scripts/build.sh python-3.12            # Build Python 3.12 image
 
 # Build all versions of a type

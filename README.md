@@ -14,7 +14,7 @@ For development setup and workflow, see [docs/DEVELOPMENT.md](docs/DEVELOPMENT.m
 | Type   | Versions               | Base OS          |
 |--------|------------------------|------------------|
 | Python | 3.12                   | UBI 9            |
-| CUDA   | 12.8, 12.9, 13.0, 13.1 | CentOS Stream 9  |
+| CUDA   | 12.8, 12.9, 13.0, 13.1, 13.2 | CentOS Stream 9  |
 
 ## Pulling Base Images
 
@@ -39,13 +39,14 @@ podman pull quay.io/opendatahub/odh-midstream-python-base-3-12
 | 12.9 | `quay.io/opendatahub/odh-midstream-cuda-base-12-9` | [View on Quay.io](https://quay.io/repository/opendatahub/odh-midstream-cuda-base-12-9) |
 | 13.0 | `quay.io/opendatahub/odh-midstream-cuda-base-13-0` | [View on Quay.io](https://quay.io/repository/opendatahub/odh-midstream-cuda-base-13-0) |
 | 13.1 | `quay.io/opendatahub/odh-midstream-cuda-base-13-1` | [View on Quay.io](https://quay.io/repository/opendatahub/odh-midstream-cuda-base-13-1) |
+| 13.2 | `quay.io/opendatahub/odh-midstream-cuda-base-13-2` | [View on Quay.io](https://quay.io/repository/opendatahub/odh-midstream-cuda-base-13-2) |
 
 ```bash
 # Pull CUDA 12.8 base image
 podman pull quay.io/opendatahub/odh-midstream-cuda-base-12-8
 
-# Pull CUDA 13.1 base image
-podman pull quay.io/opendatahub/odh-midstream-cuda-base-13-1
+# Pull CUDA 13.2 base image
+podman pull quay.io/opendatahub/odh-midstream-cuda-base-13-2
 ```
 
 ## Repository Structure

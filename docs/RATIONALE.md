@@ -56,7 +56,7 @@ Provide **common base images** that ODH repositories can build upon:
 | Base Image | Use Case |
 |------------|----------|
 | `Containerfile.python` | CPU workloads, web services |
-| `Containerfile.cuda` | GPU workloads, model training (multiple CUDA versions: 12.8, 12.9, 13.0, 13.1) |
+| `Containerfile.cuda` | GPU workloads, model training (multiple CUDA versions: 12.8, 12.9, 13.0, 13.1, 13.2) |
 
 ### Benefits
 
@@ -92,14 +92,14 @@ RUN pip install -r requirements.txt
 
 ## Why Multiple CUDA Versions?
 
-The repository maintains multiple CUDA versions (currently 12.8, 12.9, 13.0, and 13.1) rather than a single version. Supporting multiple CUDA versions enables midstream projects within the Open Data Hub organization to adopt newer CUDA releases more easily during midstream cycles. Introducing newer CUDA versions in midstream first also prepares the team for a smoother transition when the same versions are later promoted to downstream products.
+The repository maintains multiple CUDA versions (currently 12.8, 12.9, 13.0, 13.1, and 13.2) rather than a single version. Supporting multiple CUDA versions enables midstream projects within the Open Data Hub organization to adopt newer CUDA releases more easily during midstream cycles. Introducing newer CUDA versions in midstream first also prepares the team for a smoother transition when the same versions are later promoted to downstream products.
 
 This approach lets consumers pick the CUDA version that matches their needs:
 
 | Scenario | Recommended Version |
 |----------|-------------------|
 | Production stability | Older, well-tested version (e.g. 12.8) |
-| New GPU features | Latest available version (e.g. 13.1) |
+| New GPU features | Latest available version (e.g. 13.2) |
 | Gradual migration | Test with newer version before switching |
 
 ## Design Decisions
