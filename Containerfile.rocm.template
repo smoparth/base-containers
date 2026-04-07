@@ -1,0 +1,267 @@
+# ODH ROCm Base Image (CentOS Stream 9)
+# ROCm Version: ${ROCM_MAJOR_MINOR_DOT}
+# Generated from Containerfile.rocm.template - edit template, not this file
+#
+# CentOS Stream 9 required: ROCm packages need CentOS Stream 9 / RHEL 9 repos
+# Usage: ./scripts/build.sh rocm-${ROCM_MAJOR_MINOR_DOT}
+# Build args: rocm/${ROCM_MAJOR_MINOR_DOT}/app.conf
+
+ARG BASE_IMAGE
+ARG ROCM_MAJOR
+ARG ROCM_MAJOR_MINOR
+ARG ROCM_MAJOR_MINOR_DOT
+ARG ROCM_VERSION
+
+# Build metadata for OCI labels
+ARG BUILD_DATE
+ARG VCS_REF=unknown
+ARG VERSION=0.0.1
+
+# -----------------------------------------------------------------------------
+# Base stage (x86_64 only - ROCm does not support ARM64)
+# -----------------------------------------------------------------------------
+FROM ${BASE_IMAGE} AS rocm-base
+
+ARG ROCM_MAJOR
+ARG ROCM_MAJOR_MINOR
+ARG ROCM_MAJOR_MINOR_DOT
+ARG ROCM_VERSION
+
+USER 0
+WORKDIR /opt/app-root/bin
+
+# -----------------------------------------------------------------------------
+# ROCm Version Environment
+# Source: https://repo.radeon.com/rocm/
+# -----------------------------------------------------------------------------
+ENV ROCM_VERSION=${ROCM_VERSION}
+ENV ROCM_HOME=/opt/rocm
+
+# -----------------------------------------------------------------------------
+# ROCm Repository Setup
+# -----------------------------------------------------------------------------
+RUN --mount=type=cache,target=/var/cache/dnf,sharing=locked,id=odh-base-containers-rocm-dnf \
+    dnf install -y --setopt=keepcache=1 --allowerasing curl ca-certificates
+
+# Download and verify GPG key before creating repo
+RUN ROCM_GPGKEY_SUM=2de99e2354646a90d9903e2a669fc4e36b02c1bbff7075c481e12d7edab2c88b && \
+    curl -fsSL "https://repo.radeon.com/rocm/rocm.gpg.key" > /etc/pki/rpm-gpg/RPM-GPG-KEY-ROCM && \
+    echo "$ROCM_GPGKEY_SUM  /etc/pki/rpm-gpg/RPM-GPG-KEY-ROCM" | sha256sum -c --strict -
+
+# Create repo config pointing to locally verified key
+# priority=150: prefer base OS packages over AMD's (e.g., llvm*-libs)
+# to avoid conflicts with packages that depend on RHEL's LLVM
+RUN { echo "[rocm-el9]"; \
+      echo "name=ROCm ${ROCM_VERSION} for EL9"; \
+      echo "baseurl=https://repo.radeon.com/rocm/el9/${ROCM_VERSION}/main/"; \
+      echo "enabled=1"; \
+      echo "priority=150"; \
+      echo "gpgcheck=1"; \
+      echo "gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-ROCM"; \
+    } > /etc/yum.repos.d/rocm.repo
+
+# -----------------------------------------------------------------------------
+# ROCm Base Packages
+# -----------------------------------------------------------------------------
+RUN --mount=type=cache,target=/var/cache/dnf,sharing=locked,id=odh-base-containers-rocm-dnf \
+    dnf upgrade -y --setopt=keepcache=1 && \
+    dnf install -y --setopt=keepcache=1 \
+        rocm-core \
+        hip-runtime-amd
+
+# Configure ROCm library paths
+ENV PATH=/opt/rocm/bin:/opt/rocm/hip/bin:${PATH}
+ENV LD_LIBRARY_PATH=/opt/rocm/lib:/opt/rocm/lib64
+
+# -----------------------------------------------------------------------------
+# ROCm Runtime Libraries
+# Source: https://repo.radeon.com/rocm/el9/
+# -----------------------------------------------------------------------------
+RUN --mount=type=cache,target=/var/cache/dnf,sharing=locked,id=odh-base-containers-rocm-dnf \
+    dnf install -y --setopt=keepcache=1 \
+        rocblas \
+        rocfft \
+        rocsolver \
+        rocsparse \
+        rccl \
+        miopen-hip
+
+# -----------------------------------------------------------------------------
+# Development Tools
+# -----------------------------------------------------------------------------
+RUN --mount=type=cache,target=/var/cache/dnf,sharing=locked,id=odh-base-containers-rocm-dnf \
+    dnf install -y --setopt=keepcache=1 make findutils
+
+# -----------------------------------------------------------------------------
+# ROCm Profiling Tools
+# Required by PyTorch profiler for GPU profiling on AMD hardware.
+# -----------------------------------------------------------------------------
+RUN --mount=type=cache,target=/var/cache/dnf,sharing=locked,id=odh-base-containers-rocm-dnf \
+    dnf install -y --setopt=keepcache=1 rocprofiler
+
+# -----------------------------------------------------------------------------
+# ROCm HIP SDK (toolkit)
+# Provides hipcc compiler and development headers for building HIP code.
+# -----------------------------------------------------------------------------
+RUN --mount=type=cache,target=/var/cache/dnf,sharing=locked,id=odh-base-containers-rocm-dnf \
+    dnf -y install --setopt=keepcache=1 rocm-hip-sdk
+
+# -----------------------------------------------------------------------------
+# ROCm Shared Library Configuration
+# Register ROCm libraries with the dynamic linker so they are discoverable
+# via ldconfig. ROCm binaries also have rpath set, but ld.so.conf.d ensures
+# consistent behavior for all consumers.
+# Ref: https://rocm.docs.amd.com/projects/install-on-linux/en/latest/install/post-install.html#configure-rocm-shared-objects
+# -----------------------------------------------------------------------------
+RUN echo "${ROCM_HOME}/lib" > /etc/ld.so.conf.d/rocm.conf && \
+    ldconfig
+
+# -----------------------------------------------------------------------------
+# Environment (consistent with Python base image)
+# -----------------------------------------------------------------------------
+
+# Python settings - prevent bytecode files and enable unbuffered output
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    UV_SYSTEM_PYTHON=1 \
+    UV_NO_CACHE=1
+
+# -----------------------------------------------------------------------------
+# Package Index Configuration
+# -----------------------------------------------------------------------------
+# Configure pip and uv to use the specified package indexes.
+# Users can simply run: pip install <pkg> or uv pip install <pkg>
+# Override indexes at build time via --build-arg for downstream builds.
+
+ARG PIP_INDEX_URL=https://pypi.org/simple
+ARG PIP_EXTRA_INDEX_URL
+ARG UV_TORCH_BACKEND=
+
+# pip configuration (system-wide) - must be created before installing uv
+RUN mkdir -p /etc/pip && \
+    { echo "[global]"; \
+      echo "index-url = ${PIP_INDEX_URL}"; \
+      [ -n "${PIP_EXTRA_INDEX_URL}" ] && echo "extra-index-url = ${PIP_EXTRA_INDEX_URL}"; \
+      true; \
+    } > /etc/pip.conf
+
+# Install uv - fast Python package installer
+# https://github.com/astral-sh/uv
+# Version pinned in requirements-build.txt
+COPY --chmod=644 --chown=0:0 requirements-build.txt /tmp/requirements-build.txt
+RUN python -m pip install --no-cache-dir -r /tmp/requirements-build.txt && \
+    rm /tmp/requirements-build.txt
+
+# uv configuration (system-wide)
+# Note: PIP_EXTRA_INDEX_URL is intentionally omitted from uv.toml because
+# UV_TORCH_BACKEND is uv's native mechanism for PyTorch ROCm wheel resolution.
+# torch-backend is written to uv.toml (not ENV) to avoid uv erroring on empty values.
+# Downstream builds can disable by omitting UV_TORCH_BACKEND or rebuilding uv.toml.
+RUN mkdir -p /etc/uv && \
+    { echo "[pip]"; \
+      echo "index-url = \"${PIP_INDEX_URL}\""; \
+      [ -n "${UV_TORCH_BACKEND}" ] && echo "torch-backend = \"${UV_TORCH_BACKEND}\""; \
+      true; \
+    } > /etc/uv/uv.toml
+ENV UV_CONFIG_FILE=/etc/uv/uv.toml
+
+# Copy fix-permissions script from sclorg for OpenShift compatibility
+# Source: https://github.com/sclorg/container-common-scripts
+COPY --chmod=755 --chown=0:0 scripts/fix-permissions /usr/local/bin/fix-permissions
+
+# -----------------------------------------------------------------------------
+# Directory Setup (from notebooks + trustyai patterns)
+# -----------------------------------------------------------------------------
+
+# Create cache directories with proper permissions for OpenShift
+# fix-permissions ensures group 0 can read/write, enabling arbitrary UID
+RUN mkdir -p /opt/app-root/src/.cache && \
+    chown -R 1001:0 /opt/app-root && \
+    fix-permissions /opt/app-root -P
+
+# -----------------------------------------------------------------------------
+# Final Cleanup
+# -----------------------------------------------------------------------------
+RUN dnf clean all && \
+    rm -rf /var/cache/dnf /var/log/dnf* /var/log/hawkey*
+
+# -----------------------------------------------------------------------------
+# Labels
+# -----------------------------------------------------------------------------
+ARG BUILD_DATE
+ARG VCS_REF
+ARG VERSION
+ARG PYTHON_VERSION
+
+LABEL name="odh-midstream-rocm-base" \
+      version="${VERSION}" \
+      summary="ODH ROCm Base Image" \
+      description="CentOS Stream 9 with ROCm and Python for Open Data Hub workloads" \
+      io.k8s.display-name="ODH ROCm Base" \
+      io.k8s.description="CentOS Stream 9 with ROCm and Python for Open Data Hub workloads" \
+      io.openshift.tags="rocm,python,ai,ml,gpu,c9s" \
+      org.opencontainers.image.created="${BUILD_DATE}" \
+      org.opencontainers.image.revision="${VCS_REF}" \
+      org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.title="ODH ROCm Base Image" \
+      org.opencontainers.image.description="CentOS Stream 9 with ROCm and Python for Open Data Hub workloads" \
+      org.opencontainers.image.source="https://github.com/opendatahub-io/base-containers" \
+      org.opencontainers.image.vendor="Open Data Hub" \
+      org.opencontainers.image.licenses="Apache-2.0" \
+      com.amd.rocm.version="${ROCM_VERSION}" \
+      com.opendatahub.accelerator="rocm" \
+      com.opendatahub.python="${PYTHON_VERSION}"
+
+# -----------------------------------------------------------------------------
+# User Configuration (from notebooks pattern)
+# -----------------------------------------------------------------------------
+
+# Switch to non-root user
+# UID 1001 is standard for sclorg Python images and OpenShift SCC compatible
+USER 1001
+
+# Standard workdir for Python images
+WORKDIR /opt/app-root/src
+
+# -----------------------------------------------------------------------------
+# Health Check
+# -----------------------------------------------------------------------------
+# Child images can add a HEALTHCHECK - example pattern:
+# HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
+#     CMD python -c "import myapp; myapp.health_check()" || exit 1
+
+# -----------------------------------------------------------------------------
+# Extending This Image
+# -----------------------------------------------------------------------------
+#
+# Example Dockerfile that extends this base:
+#
+#   FROM odh-midstream-rocm-base:${ROCM_MAJOR_MINOR_DOT}-py312
+#
+#   # Install dependencies (pip and uv are pre-configured with package indexes)
+#   COPY requirements.txt .
+#   RUN pip install -r requirements.txt
+#   # Or with uv (faster):
+#   # RUN uv pip install -r requirements.txt
+#
+#   # Copy application (preserve ownership for non-root user)
+#   COPY --chown=1001:0 . .
+#
+#   # Run application
+#   CMD ["python", "app.py"]
+#
+# -----------------------------------------------------------------------------
+#
+# Build for ODH (uses default package indexes):
+#   podman build -t myapp:odh .
+#
+# Build for RHOAI (override to use internal mirror):
+#   podman build -t myapp:rhoai \
+#     --build-arg PIP_INDEX_URL=https://aipcc.internal/simple \
+#     --build-arg PIP_EXTRA_INDEX_URL="" \
+#     --build-arg UV_TORCH_BACKEND= \
+#     .
+#
+# -----------------------------------------------------------------------------

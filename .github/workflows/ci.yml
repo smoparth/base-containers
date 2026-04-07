@@ -15,8 +15,10 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       any-cuda: ${{ steps.filter.outputs['any-cuda'] }}
+      any-rocm: ${{ steps.filter.outputs['any-rocm'] }}
       any-python: ${{ steps.filter.outputs['any-python'] }}
       cuda-versions: ${{ steps.cuda-versions.outputs.versions }}
+      rocm-versions: ${{ steps.rocm-versions.outputs.versions }}
       python-versions: ${{ steps.python-versions.outputs.versions }}
     steps:
       - uses: actions/checkout@v6
@@ -41,6 +43,17 @@ jobs:
               - 'tests/conftest.py'
               - 'tests/test_cuda_image.py'
               - 'tests/__init__.py'
+            any-rocm:
+              - 'rocm/**/Containerfile'
+              - 'rocm/**/app.conf'
+              - 'scripts/fix-permissions'
+              - 'scripts/build.sh'
+              - 'requirements-build.txt'
+              - '.dockerignore'
+              - 'tests/test_common.py'
+              - 'tests/conftest.py'
+              - 'tests/test_rocm_image.py'
+              - 'tests/__init__.py'
             any-python:
               - 'python/**/Containerfile'
               - 'python/**/app.conf'
@@ -50,7 +63,7 @@ jobs:
               - '.dockerignore'
               - 'tests/test_common.py'
               - 'tests/conftest.py'
-              - 'tests/test_python_image.py'  
+              - 'tests/test_python_image.py'
               - 'tests/__init__.py'
               
       - name: Build CUDA version matrix
@@ -77,6 +90,32 @@ jobs:
               | awk 'BEGIN{printf "["} {printf "%s\"%s\"", (NR>1?",":""), $0} END{print "]"}')
           fi
           
+          echo "versions=${VERSIONS}" >> "$GITHUB_OUTPUT"
+
+      - name: Build ROCm version matrix
+        id: rocm-versions
+        if: steps.filter.outputs.any-rocm == 'true'
+        env:
+          CHANGED_FILES: ${{ steps.filter.outputs.any-rocm_files }}
+        run: |
+          # Check if common files changed (affects all versions)
+          if echo "$CHANGED_FILES" | grep -qE 'requirements-build\.txt|scripts/fix-permissions|scripts/build\.sh|\.dockerignore|tests/'; then
+            echo "Common files changed - including all ROCm versions"
+            # Get all available ROCm versions from directory structure
+            VERSIONS=$(find rocm -maxdepth 1 -type d -name '[0-9]*.[0-9]*' \
+              | sed 's|rocm/||' \
+              | sort -V \
+              | awk 'BEGIN{printf "["} {printf "%s\"%s\"", (NR>1?",":""), $0} END{print "]"}')
+          else
+            # Extract only specific versions from changed rocm/<version>/{Containerfile,app.conf} paths
+            VERSIONS=$(echo "$CHANGED_FILES" \
+              | tr -d '[]" ' \
+              | tr ',' '\n' \
+              | awk -F/ '$1=="rocm" && $2 ~ /^[0-9]+\.[0-9]+$/ && ($3=="Containerfile" || $3=="app.conf") {print $2}' \
+              | sort -uV \
+              | awk 'BEGIN{printf "["} {printf "%s\"%s\"", (NR>1?",":""), $0} END{print "]"}')
+          fi
+
           echo "versions=${VERSIONS}" >> "$GITHUB_OUTPUT"
 
       - name: Build Python version matrix
@@ -315,6 +354,89 @@ jobs:
           CUDA_VERSION: ${{ matrix.version }}
         run: pytest tests/test_cuda_image.py tests/test_common.py -v
 
+  test-rocm-image:
+    name: Test ROCm ${{ matrix.version }} Image
+    runs-on: ubuntu-latest
+    needs: [lint, type-check, changes, lint-containerfiles]
+    # Run when ROCm-related files change AND lint-containerfiles passed/skipped
+    if: |
+      always() &&
+      needs.changes.outputs['any-rocm'] == 'true' &&
+      needs.changes.outputs.rocm-versions != '' &&
+      needs.changes.outputs.rocm-versions != '[]' &&
+      needs.lint.result == 'success' &&
+      needs.type-check.result == 'success' &&
+      (needs.lint-containerfiles.result == 'success' || needs.lint-containerfiles.result == 'skipped')
+    strategy:
+      matrix:
+        version: ${{ fromJSON(needs.changes.outputs.rocm-versions || '[]') }}
+      fail-fast: false
+    steps:
+      - uses: actions/checkout@v6
+
+      # Free disk space for ROCm build (large image)
+      # https://github.com/jlumbroso/free-disk-space
+      - name: Free disk space
+        uses: jlumbroso/free-disk-space@v1.3.1
+        with:
+          tool-cache: false  # Keep for actions/setup-python
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: true
+          docker-images: true
+          swap-storage: true
+
+      # Additional cleanup (complements jlumbroso action)
+      # Referenced from: https://github.com/opendatahub-io/notebooks/.github/actions/free-up-disk-space
+      - name: Additional disk cleanup
+        run: |
+          # Run cleanup in parallel for speed
+          sudo rm -rf /usr/local/.ghcup &
+          sudo rm -rf /usr/local/share/boost &
+          sudo rm -rf /usr/local/lib/node_modules &
+          sudo rm -rf /opt/hostedtoolcache/CodeQL &
+          sudo rm -rf /opt/hostedtoolcache/go &
+          sudo rm -rf /opt/hostedtoolcache/Ruby &
+          sudo rm -rf /opt/hostedtoolcache/PyPy &
+          wait
+
+          # Show available space
+          echo "=== Available disk space ==="
+          df -h /
+          AVAILABLE=$(df -BG / | tail -1 | awk '{print $4}' | tr -d 'G')
+          echo "Available: ${AVAILABLE}GB"
+          if [ "$AVAILABLE" -lt 30 ]; then
+            echo "::warning::Less than 30GB available for ROCm build"
+          fi
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install test dependencies
+        run: pip install -e ".[test]"
+
+      - name: Get image tag from config
+        id: config
+        run: |
+          TAG=$(grep '^IMAGE_TAG=' rocm/${{ matrix.version }}/app.conf | cut -d'=' -f2)
+          if [ -z "$TAG" ]; then
+            echo "::error::IMAGE_TAG not found in rocm/${{ matrix.version }}/app.conf"
+            exit 1
+          fi
+          echo "tag=${TAG}" >> $GITHUB_OUTPUT
+
+      - name: Build ROCm ${{ matrix.version }} image
+        run: ./scripts/build.sh rocm-${{ matrix.version }}
+
+      - name: Run ROCm image tests
+        env:
+          ROCM_IMAGE: ${{ env.IMAGE_REGISTRY }}/odh-midstream-rocm-base:${{ steps.config.outputs.tag }}
+          ROCM_VERSION: ${{ matrix.version }}
+        run: pytest tests/test_rocm_image.py tests/test_common.py -v
+
   # Aggregator job for branch protection - use this as the required status check
   # This ensures all jobs (including conditional ones) must pass before merging
   ci-status:
@@ -327,6 +449,7 @@ jobs:
       - lint-containerfiles
       - test-python-image
       - test-cuda-image
+      - test-rocm-image
     steps:
       - name: Check CI status
         run: |
@@ -335,9 +458,10 @@ jobs:
           echo "lint-containerfiles: ${{ needs.lint-containerfiles.result }}"
           echo "test-python-image: ${{ needs.test-python-image.result }}"
           echo "test-cuda-image: ${{ needs.test-cuda-image.result }}"
+          echo "test-rocm-image: ${{ needs.test-rocm-image.result }}"
 
           # Fail if any required job failed or was cancelled
-          # Note: 'skipped' is OK for conditional jobs (lint-containerfiles, test-cuda-image)
+          # Note: 'skipped' is OK for conditional jobs (lint-containerfiles, test-cuda-image, test-rocm-image)
           if [[ "${{ needs.lint.result }}" == "failure" || \
                 "${{ needs.lint.result }}" == "cancelled" || \
                 "${{ needs.type-check.result }}" == "failure" || \
@@ -347,7 +471,9 @@ jobs:
                 "${{ needs.test-python-image.result }}" == "failure" || \
                 "${{ needs.test-python-image.result }}" == "cancelled" || \
                 "${{ needs.test-cuda-image.result }}" == "failure" || \
-                "${{ needs.test-cuda-image.result }}" == "cancelled" ]]; then
+                "${{ needs.test-cuda-image.result }}" == "cancelled" || \
+                "${{ needs.test-rocm-image.result }}" == "failure" || \
+                "${{ needs.test-rocm-image.result }}" == "cancelled" ]]; then
             echo "::error::One or more CI jobs failed or were cancelled"
             exit 1
           fi

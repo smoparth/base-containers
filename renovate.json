@@ -29,7 +29,8 @@
       "description": "Update BASE_IMAGE in app.conf files",
       "fileMatch": [
         "(^|/)python/[^/]+/app\\.conf$",
-        "(^|/)cuda/[^/]+/app\\.conf$"
+        "(^|/)cuda/[^/]+/app\\.conf$",
+        "(^|/)rocm/[^/]+/app\\.conf$"
       ],
       "matchStrings": [
         "BASE_IMAGE=(?<depName>[^:]+):(?<currentValue>[^@\\s]+)(@(?<currentDigest>sha256:[a-f0-9]+))?"

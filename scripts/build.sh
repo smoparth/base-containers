@@ -6,8 +6,10 @@
 #
 # Targets:
 #   cuda-12.8, cuda-12.9, cuda-13.0, cuda-13.1  - Build specific CUDA version
+#   rocm-6.4                                     - Build specific ROCm version
 #   python-3.12                                  - Build specific Python version
 #   cuda                                         - Build all CUDA versions
+#   rocm                                         - Build all ROCm versions
 #   python                                       - Build all Python versions
 #   all                                          - Build everything (default)
 #
@@ -148,8 +150,10 @@ print_usage() {
     echo ""
     echo "Targets:"
     echo "  cuda-<version>    - Build specific CUDA version (e.g., cuda-12.8, cuda-13.0)"
+    echo "  rocm-<version>    - Build specific ROCm version (e.g., rocm-6.4)"
     echo "  python-<version>  - Build specific Python version (e.g., python-3.12)"
     echo "  cuda              - Build all CUDA versions"
+    echo "  rocm              - Build all ROCm versions"
     echo "  python            - Build all Python versions"
     echo "  all               - Build all images (default)"
     echo ""
@@ -159,6 +163,17 @@ print_usage() {
     if [[ -n "${cuda_versions}" ]]; then
         for v in ${cuda_versions}; do
             echo "    cuda-${v}"
+        done
+    else
+        echo "    (none found)"
+    fi
+    echo ""
+    echo "Available ROCm versions:"
+    local rocm_versions
+    rocm_versions=$(get_all_versions "rocm")
+    if [[ -n "${rocm_versions}" ]]; then
+        for v in ${rocm_versions}; do
+            echo "    rocm-${v}"
         done
     else
         echo "    (none found)"
@@ -183,6 +198,8 @@ print_usage() {
     echo "  $0 cuda-12.8      # Build CUDA 12.8 only"
     echo "  $0 cuda-13.0      # Build CUDA 13.0 only"
     echo "  $0 cuda           # Build all CUDA versions"
+    echo "  $0 rocm-6.4       # Build ROCm 6.4 only"
+    echo "  $0 rocm           # Build all ROCm versions"
     echo "  $0 python-3.12    # Build Python 3.12 only"
     echo "  $0 python         # Build all Python versions"
     echo "  $0 all            # Build everything"
@@ -210,6 +227,17 @@ main() {
             build_versioned_image "cuda" "${version}"
             ;;
 
+        # Specific ROCm version (rocm-6.4, etc.)
+        rocm-*)
+            local version="${target#rocm-}"
+            if [[ ! -d "${PROJECT_ROOT}/rocm/${version}" ]]; then
+                log_error "ROCm version ${version} not found in ${PROJECT_ROOT}/rocm/"
+                log_info "Available versions: $(get_all_versions rocm | tr '\n' ' ')"
+                exit 1
+            fi
+            build_versioned_image "rocm" "${version}"
+            ;;
+
         # Specific Python version (python-3.12, etc.)
         python-*)
             local version="${target#python-}"
@@ -226,6 +254,11 @@ main() {
             build_all_of_type "cuda"
             ;;
 
+        # All ROCm versions
+        rocm)
+            build_all_of_type "rocm"
+            ;;
+
         # All Python versions
         python)
             build_all_of_type "python"
@@ -235,6 +268,7 @@ main() {
         all)
             build_all_of_type "python"
             build_all_of_type "cuda"
+            build_all_of_type "rocm"
             ;;
 
         -h|--help|help)

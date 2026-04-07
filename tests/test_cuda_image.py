@@ -165,7 +165,10 @@ def test_uv_torch_backend(cuda_container):
     # Verify it's set to a valid CUDA backend (cuNNN format), not "auto" or "cpu"
     match = re.search(r'torch-backend\s*=\s*"(cu\d+)"', result.stdout)
     assert match, f'Expected torch-backend = "cuNNN" in uv.toml, got:\n{result.stdout}'
-    # If UV_TORCH_BACKEND is set in the test environment, verify the exact value matches
+    # If UV_TORCH_BACKEND is set in the test environment, verify the exact value matches.
+    # Note: UV_TORCH_BACKEND is intentionally not passed in CI. The downstream build
+    # overwrites /etc/uv/uv.toml with its own config, so the exact value set here
+    # has no downstream impact. The loose format check above is sufficient.
     expected_backend = os.environ.get("UV_TORCH_BACKEND")
     if expected_backend is not None:
         assert match.group(1) == expected_backend, (
