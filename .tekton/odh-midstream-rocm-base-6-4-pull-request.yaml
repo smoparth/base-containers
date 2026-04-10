@@ -50,11 +50,11 @@ spec:
         - name: app-check
           computeResources:
             requests:
-              memory: 8Gi
-              cpu: '2'
+              memory: 16Gi
+              cpu: '8'
             limits:
-              memory: 12Gi
-              cpu: '4'
+              memory: 20Gi
+              cpu: '8'
   taskRunTemplate:
     serviceAccountName: build-pipeline-odh-midstream-rocm-base-6-4
   workspaces:
