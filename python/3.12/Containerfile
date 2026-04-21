@@ -80,7 +80,7 @@ RUN mkdir -p /etc/pip && \
 # https://github.com/astral-sh/uv
 # Version pinned in requirements-build.txt
 COPY --chmod=644 --chown=0:0 requirements-build.txt /tmp/requirements-build.txt
-RUN python -m pip install --no-cache-dir -r /tmp/requirements-build.txt && \
+RUN python -m pip install --no-cache-dir --require-hashes -r /tmp/requirements-build.txt && \
     rm /tmp/requirements-build.txt
 
 # uv configuration (system-wide)
