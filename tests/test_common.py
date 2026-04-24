@@ -9,9 +9,9 @@ import pytest
 from tests import APP_ROOT, WORKDIR, redact_url_credentials
 
 
-@pytest.fixture(params=["python_container", "cuda_container"])
+@pytest.fixture(params=["python_container", "cuda_container", "rocm_container"])
 def container(request):
-    """Parameterize to run same tests against both images."""
+    """Parameterize to run same tests against all image types."""
     return request.getfixturevalue(request.param)
 
 

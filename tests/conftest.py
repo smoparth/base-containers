@@ -186,3 +186,29 @@ def cuda_container(cuda_image):
     runner.start()
     yield runner
     runner.stop()
+
+
+@pytest.fixture(scope="session")
+def rocm_image():
+    """Image name for ROCm base image.
+
+    Set via ROCM_IMAGE environment variable.
+    Example: ROCM_IMAGE=quay.io/opendatahub/odh-midstream-rocm-base-6-4
+    """
+    return _get_required_env(
+        "ROCM_IMAGE",
+        "quay.io/opendatahub/odh-midstream-rocm-base-<rocm_major_version>-<rocm_minor_version>",
+    )
+
+
+@pytest.fixture(scope="session")
+def rocm_container(rocm_image):
+    """Session-scoped container runner for ROCm image.
+
+    Container starts once at session start and stops at session end.
+    All tests share the same running container.
+    """
+    runner = ContainerRunner(rocm_image)
+    runner.start()
+    yield runner
+    runner.stop()

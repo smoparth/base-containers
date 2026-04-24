@@ -56,7 +56,8 @@ Provide **common base images** that ODH repositories can build upon:
 | Base Image | Use Case |
 |------------|----------|
 | `Containerfile.python` | CPU workloads, web services |
-| `Containerfile.cuda` | GPU workloads, model training (multiple CUDA versions: 12.8, 12.9, 13.0, 13.1) |
+| `Containerfile.cuda` | GPU workloads, model training on NVIDIA hardware (multiple CUDA versions: 12.8, 12.9, 13.0, 13.1, 13.2) |
+| `Containerfile.rocm` | GPU workloads, model training on AMD hardware (ROCm 6.4, 7.1, x86_64 only) |
 
 ### Benefits
 
@@ -64,7 +65,7 @@ Provide **common base images** that ODH repositories can build upon:
 |---------|-------------|
 | **Reduced duplication** | CUDA setup done once, not in every repo |
 | **Faster builds** | Downstream images skip base setup |
-| **Consistent versions** | Single source of truth for Python, CUDA, cuDNN |
+| **Consistent versions** | Single source of truth for Python, CUDA, cuDNN, ROCm |
 | **Easier upgrades** | Update base image, rebuild consumers |
 | **Security** | Centralized vulnerability management |
 | **OpenShift compatibility** | Tested patterns for restricted SCC |
@@ -92,14 +93,14 @@ RUN pip install -r requirements.txt
 
 ## Why Multiple CUDA Versions?
 
-The repository maintains multiple CUDA versions (currently 12.8, 12.9, 13.0, and 13.1) rather than a single version. Supporting multiple CUDA versions enables midstream projects within the Open Data Hub organization to adopt newer CUDA releases more easily during midstream cycles. Introducing newer CUDA versions in midstream first also prepares the team for a smoother transition when the same versions are later promoted to downstream products.
+The repository maintains multiple CUDA versions (currently 12.8, 12.9, 13.0, 13.1, and 13.2) rather than a single version. Supporting multiple CUDA versions enables midstream projects within the Open Data Hub organization to adopt newer CUDA releases more easily during midstream cycles. Introducing newer CUDA versions in midstream first also prepares the team for a smoother transition when the same versions are later promoted to downstream products.
 
 This approach lets consumers pick the CUDA version that matches their needs:
 
 | Scenario | Recommended Version |
 |----------|-------------------|
 | Production stability | Older, well-tested version (e.g. 12.8) |
-| New GPU features | Latest available version (e.g. 13.1) |
+| New GPU features | Latest available version (e.g. 13.2) |
 | Gradual migration | Test with newer version before switching |
 
 ## Design Decisions
@@ -110,6 +111,7 @@ This approach lets consumers pick the CUDA version that matches their needs:
 |-------|---------|--------|
 | Python | UBI 9 | Smaller footprint, Red Hat supported |
 | CUDA | CentOS Stream 9 | CUDA requires OpenGL/mesa libs not in UBI 9 |
+| ROCm | CentOS Stream 9 | ROCm packages need CentOS Stream 9 / RHEL 9 repos |
 
 CUDA packages fail on UBI 9 due to missing dependencies. CentOS Stream 9 provides the required libraries. See [RHAIENG-1532](https://issues.redhat.com/browse/RHAIENG-1532).
 
@@ -168,6 +170,7 @@ podman build -t myapp:odh .
 podman build -t myapp:rhoai \
   --build-arg PIP_INDEX_URL=https://aipcc.internal/simple \
   --build-arg PIP_EXTRA_INDEX_URL="" \
+  --build-arg UV_TORCH_BACKEND= \
   .
 ```
 
@@ -177,5 +180,6 @@ The following build args are expected to change between streams:
 |---|---|---|
 | `BASE_IMAGE` | Public image (CentOS, UBI) | Internal AIPCC image |
 | `PIP_INDEX_URL` | `https://pypi.org/simple` | Internal index URL |
-| `PIP_EXTRA_INDEX_URL` | PyTorch public index | Empty or internal |
+| `PIP_EXTRA_INDEX_URL` | PyTorch public index | Empty (disabled) |
+| `UV_TORCH_BACKEND` | CUDA backend (e.g., `cu128`) | Empty (omitted from uv.toml) |
 

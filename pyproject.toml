@@ -20,6 +20,9 @@ dev = [
     "tox>=4.0.0,<5.0.0",
 ]
 
+[tool.setuptools.packages.find]
+exclude = ["cuda*", "rocm*", "python*", "scripts*", "docs*"]
+
 [tool.ruff]
 target-version = "py312"
 line-length = 100

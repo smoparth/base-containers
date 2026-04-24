@@ -1,0 +1,27 @@
+name: OK to Test
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  pull-requests: write
+
+jobs:
+  ok-to-test:
+    name: OK to Test
+    if: >-
+      github.event.issue.pull_request &&
+      github.event.comment.body == '/ok-to-test' &&
+      (github.event.comment.author_association == 'MEMBER' ||
+       github.event.comment.author_association == 'OWNER' ||
+       github.event.comment.author_association == 'COLLABORATOR' ||
+       github.event.comment.author_association == 'CONTRIBUTOR')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Add ok-to-test label
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.issue.number }}
+          REPO: ${{ github.repository }}
+        run: gh pr edit "$PR_NUMBER" --repo "$REPO" --add-label "ok-to-test"

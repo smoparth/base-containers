@@ -1,26 +1,17 @@
-# ODH CUDA Base Image (CentOS Stream 9)
-# CUDA Version: ${CUDA_MAJOR_MINOR_DOT}
-# Generated from Containerfile.cuda.template - edit template, not this file
+# ODH ROCm Base Image (CentOS Stream 9)
+# ROCm Version: ${ROCM_MAJOR_MINOR_DOT}
+# Generated from Containerfile.rocm.template - edit template, not this file
 #
-# CentOS Stream 9 required: CUDA packages fail on UBI 9 (missing OpenGL/mesa deps)
-# Usage: ./scripts/build.sh cuda-${CUDA_MAJOR_MINOR_DOT}
-# Build args: cuda/${CUDA_MAJOR_MINOR_DOT}/app.conf
+# CentOS Stream 9 required: ROCm packages need CentOS Stream 9 / RHEL 9 repos
+# Usage: ./scripts/build.sh rocm-${ROCM_MAJOR_MINOR_DOT}
+# Build args: rocm/${ROCM_MAJOR_MINOR_DOT}/app.conf
 
 ARG BASE_IMAGE
-ARG TARGETARCH
-ARG CUDA_MAJOR
-ARG CUDA_MAJOR_MINOR
-ARG CUDA_MAJOR_MINOR_DOT
-ARG CUDA_VERSION
-ARG NV_CUDA_CUDART_VERSION
-ARG NV_CUDA_LIB_VERSION
-ARG NV_NVTX_VERSION
-ARG NV_LIBNPP_VERSION
-ARG NV_LIBCUBLAS_VERSION
-ARG NV_LIBNCCL_VERSION
-ARG NV_LIBNCCL_PACKAGE_VERSION
-ARG NV_CUDNN_VERSION
-ARG NVIDIA_REQUIRE_CUDA
+ARG ROCM_MAJOR
+ARG ROCM_MAJOR_MINOR
+ARG ROCM_MAJOR_MINOR_DOT
+ARG ROCM_VERSION
+ARG RELEASEVER
 
 # Build metadata for OCI labels
 ARG BUILD_DATE
@@ -28,147 +19,134 @@ ARG VCS_REF=unknown
 ARG VERSION=0.0.1
 
 # -----------------------------------------------------------------------------
-# Multi-arch base stages
+# Base stage (x86_64 only - ROCm does not support ARM64)
 # -----------------------------------------------------------------------------
-FROM ${BASE_IMAGE} AS base
-WORKDIR /opt/app-root/bin
+FROM ${BASE_IMAGE} AS rocm-base
 
-FROM base AS cuda-base-amd64
-ENV NVARCH=x86_64
-
-FROM base AS cuda-base-arm64
-ENV NVARCH=sbsa
-
-FROM cuda-base-${TARGETARCH} AS cuda-base
-
-ARG TARGETARCH
-ARG CUDA_MAJOR
-ARG CUDA_MAJOR_MINOR
-ARG CUDA_MAJOR_MINOR_DOT
-ARG NVIDIA_REQUIRE_CUDA
-ARG CUDA_VERSION
-ARG NV_CUDA_CUDART_VERSION
-ARG NV_CUDA_LIB_VERSION
-ARG NV_NVTX_VERSION
-ARG NV_LIBNPP_VERSION
-ARG NV_LIBCUBLAS_VERSION
-ARG NV_LIBNCCL_VERSION
-ARG NV_LIBNCCL_PACKAGE_VERSION
-ARG NV_CUDNN_VERSION
+ARG ROCM_MAJOR
+ARG ROCM_MAJOR_MINOR
+ARG ROCM_MAJOR_MINOR_DOT
+ARG ROCM_VERSION
+ARG RELEASEVER
 
 USER 0
 WORKDIR /opt/app-root/bin
 
 # -----------------------------------------------------------------------------
-# CUDA Version Environment
-# Source: https://gitlab.com/nvidia/container-images/cuda/-/tree/master/dist
+# ROCm Version Environment
+# Source: https://repo.radeon.com/rocm/
 # -----------------------------------------------------------------------------
-ENV NVIDIA_REQUIRE_CUDA=${NVIDIA_REQUIRE_CUDA}
-ENV CUDA_VERSION=${CUDA_VERSION}
-ENV CUDA_HOME=/usr/local/cuda
-ENV NV_CUDA_CUDART_VERSION=${NV_CUDA_CUDART_VERSION}
-ENV NV_CUDA_LIB_VERSION=${NV_CUDA_LIB_VERSION}
-ENV NV_NVTX_VERSION=${NV_NVTX_VERSION}
-ENV NV_LIBNPP_VERSION=${NV_LIBNPP_VERSION}
-ENV NV_LIBNPP_PACKAGE=libnpp-${CUDA_MAJOR_MINOR}-${NV_LIBNPP_VERSION}
-ENV NV_LIBCUBLAS_VERSION=${NV_LIBCUBLAS_VERSION}
-ENV NV_LIBNCCL_PACKAGE_NAME=libnccl
-ENV NV_LIBNCCL_PACKAGE_VERSION=${NV_LIBNCCL_PACKAGE_VERSION}
-ENV NV_LIBNCCL_VERSION=${NV_LIBNCCL_VERSION}
-ENV NCCL_VERSION=${NV_LIBNCCL_VERSION}
-ENV NV_LIBNCCL_PACKAGE=${NV_LIBNCCL_PACKAGE_NAME}-${NV_LIBNCCL_PACKAGE_VERSION}+cuda${CUDA_MAJOR_MINOR_DOT}
-ENV NV_CUDNN_VERSION=${NV_CUDNN_VERSION}
-ENV NV_CUDNN_PACKAGE=libcudnn9-cuda-${CUDA_MAJOR}-${NV_CUDNN_VERSION}
+ENV ROCM_VERSION=${ROCM_VERSION}
+ENV ROCM_HOME=/opt/rocm
 
 # -----------------------------------------------------------------------------
-# NVIDIA Repository Setup
+# ROCm Repository Setup
 # -----------------------------------------------------------------------------
-RUN --mount=type=cache,target=/var/cache/dnf,sharing=locked,id=odh-base-containers-cuda-dnf \
+RUN --mount=type=cache,target=/var/cache/dnf,sharing=locked,id=odh-base-containers-rocm-dnf \
     dnf install -y --setopt=keepcache=1 --allowerasing curl ca-certificates
 
 # Download and verify GPG key before creating repo
-RUN NVIDIA_GPGKEY_SUM=d0664fbbdb8c32356d45de36c5984617217b2d0bef41b93ccecd326ba3b80c87 && \
-    curl -fsSL "https://developer.download.nvidia.com/compute/cuda/repos/rhel9/${NVARCH}/D42D0685.pub" | sed '/^Version/d' > /etc/pki/rpm-gpg/RPM-GPG-KEY-NVIDIA && \
-    echo "$NVIDIA_GPGKEY_SUM  /etc/pki/rpm-gpg/RPM-GPG-KEY-NVIDIA" | sha256sum -c --strict -
+RUN ROCM_GPGKEY_SUM=2de99e2354646a90d9903e2a669fc4e36b02c1bbff7075c481e12d7edab2c88b && \
+    curl -fsSL "https://repo.radeon.com/rocm/rocm.gpg.key" > /etc/pki/rpm-gpg/RPM-GPG-KEY-ROCM && \
+    echo "$ROCM_GPGKEY_SUM  /etc/pki/rpm-gpg/RPM-GPG-KEY-ROCM" | sha256sum -c --strict -
 
-# Create repo config pointing to locally verified key
-RUN { echo "[cuda-rhel9-${NVARCH}]"; \
-      echo "name=cuda-rhel9-${NVARCH}"; \
-      echo "baseurl=https://developer.download.nvidia.com/compute/cuda/repos/rhel9/${NVARCH}"; \
+# AMD Repository Configuration
+# Three AMD repos exist; which ones are needed depends on the ROCm major version:
+#   ROCm main:  always enabled (core ROCm packages)
+#   AMDGPU:     enabled for 6.x (GPU driver/runtime packages)
+#   Graphics:   enabled for 7.x+ (replaces AMDGPU starting in 7.x)
+# All repos share the same GPG key.
+# priority=150: prefer base OS packages over AMD's (e.g., llvm*-libs)
+# to avoid conflicts with packages that depend on RHEL's LLVM
+# RELEASEVER: AMD repos require a specific RHEL minor version (e.g., 9.4);
+# CentOS Stream 9 reports VERSION_ID=9 which has no matching repo path.
+RUN if ! [ "${ROCM_MAJOR}" -eq "${ROCM_MAJOR}" ] 2>/dev/null; then \
+      echo "ERROR: ROCM_MAJOR must be a number, got '${ROCM_MAJOR}'" >&2; exit 1; \
+    fi && \
+    if ! echo "${RELEASEVER}" | grep -qE '^[0-9]+\.[0-9]+$'; then \
+      echo "ERROR: RELEASEVER must be in X.Y format (e.g., 9.4, 9.6), got '${RELEASEVER}'" >&2; exit 1; \
+    fi && \
+    AMDGPU_ENABLED=$([ "${ROCM_MAJOR}" -lt 7 ] && echo 1 || echo 0) && \
+    GRAPHICS_ENABLED=$([ "${ROCM_MAJOR}" -ge 7 ] && echo 1 || echo 0) && \
+    { echo "[rocm-el9]"; \
+      echo "name=ROCm ${ROCM_VERSION} for EL9"; \
+      echo "baseurl=https://repo.radeon.com/rocm/el9/${ROCM_VERSION}/main/"; \
       echo "enabled=1"; \
+      echo "priority=150"; \
       echo "gpgcheck=1"; \
-      echo "repo_gpgcheck=1"; \
-      echo "gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-NVIDIA"; \
-    } > /etc/yum.repos.d/cuda.repo
+      echo "gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-ROCM"; \
+      echo ""; \
+      echo "[amdgpu]"; \
+      echo "name=AMDGPU ${ROCM_VERSION} for RHEL ${RELEASEVER}"; \
+      echo "baseurl=https://repo.radeon.com/amdgpu/${ROCM_VERSION}/rhel/${RELEASEVER}/main/x86_64/"; \
+      echo "enabled=${AMDGPU_ENABLED}"; \
+      echo "priority=150"; \
+      echo "gpgcheck=1"; \
+      echo "gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-ROCM"; \
+      echo ""; \
+      echo "[amd-graphics]"; \
+      echo "name=AMD Graphics ${ROCM_VERSION} for EL ${RELEASEVER}"; \
+      echo "baseurl=https://repo.radeon.com/graphics/${ROCM_VERSION}/el/${RELEASEVER}/main/x86_64/"; \
+      echo "enabled=${GRAPHICS_ENABLED}"; \
+      echo "priority=150"; \
+      echo "gpgcheck=1"; \
+      echo "gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-ROCM"; \
+    } > /etc/yum.repos.d/rocm.repo
 
 # -----------------------------------------------------------------------------
-# CUDA Base Packages
+# ROCm Base Packages
 # -----------------------------------------------------------------------------
-RUN --mount=type=cache,target=/var/cache/dnf,sharing=locked,id=odh-base-containers-cuda-dnf \
+RUN --mount=type=cache,target=/var/cache/dnf,sharing=locked,id=odh-base-containers-rocm-dnf \
     dnf install -y --setopt=keepcache=1 \
-        cuda-cudart-${CUDA_MAJOR_MINOR}-${NV_CUDA_CUDART_VERSION} \
-        cuda-compat-${CUDA_MAJOR_MINOR}
+        rocm-core \
+        hip-runtime-amd
 
-# Configure NVIDIA libraries path (nvidia-docker 1.0 compatibility)
-RUN echo "/usr/local/nvidia/lib" >> /etc/ld.so.conf.d/nvidia.conf && \
-    echo "/usr/local/nvidia/lib64" >> /etc/ld.so.conf.d/nvidia.conf
-
-ENV PATH=/usr/local/nvidia/bin:/usr/local/cuda/bin:${PATH}
-ENV LD_LIBRARY_PATH=/usr/local/nvidia/lib:/usr/local/nvidia/lib64
-
-# nvidia-container-runtime settings
-ENV NVIDIA_VISIBLE_DEVICES=all
-ENV NVIDIA_DRIVER_CAPABILITIES=compute,utility,video
-
-# Disable JIT caching for reproducibility (matches downstream)
-# https://developer.nvidia.com/blog/cuda-pro-tip-understand-fat-binaries-jit-caching/
-ENV CUDA_CACHE_DISABLE=1
-
-# Load kernels on demand for faster startup
-ENV CUDA_MODULE_LOADING=LAZY
+# Configure ROCm library paths
+ENV PATH=/opt/rocm/bin:/opt/rocm/hip/bin:${PATH}
+ENV LD_LIBRARY_PATH=/opt/rocm/lib:/opt/rocm/lib64
 
 # -----------------------------------------------------------------------------
-# CUDA Runtime Libraries
-# Source: https://gitlab.com/nvidia/container-images/cuda/-/blob/master/dist
+# ROCm Runtime Libraries
+# Source: https://repo.radeon.com/rocm/el9/
 # -----------------------------------------------------------------------------
-RUN --mount=type=cache,target=/var/cache/dnf,sharing=locked,id=odh-base-containers-cuda-dnf \
+RUN --mount=type=cache,target=/var/cache/dnf,sharing=locked,id=odh-base-containers-rocm-dnf \
     dnf install -y --setopt=keepcache=1 \
-        cuda-libraries-${CUDA_MAJOR_MINOR}-${NV_CUDA_LIB_VERSION} \
-        cuda-nvtx-${CUDA_MAJOR_MINOR}-${NV_NVTX_VERSION} \
-        ${NV_LIBNPP_PACKAGE} \
-        libcublas-${CUDA_MAJOR_MINOR}-${NV_LIBCUBLAS_VERSION} \
-        ${NV_LIBNCCL_PACKAGE}
+        rocblas \
+        rocfft \
+        rocsolver \
+        rocsparse \
+        rccl \
+        miopen-hip
 
 # -----------------------------------------------------------------------------
 # Development Tools
 # -----------------------------------------------------------------------------
-RUN --mount=type=cache,target=/var/cache/dnf,sharing=locked,id=odh-base-containers-cuda-dnf \
+RUN --mount=type=cache,target=/var/cache/dnf,sharing=locked,id=odh-base-containers-rocm-dnf \
     dnf install -y --setopt=keepcache=1 make findutils
 
 # -----------------------------------------------------------------------------
-# cuDNN
-# Source: https://gitlab.com/nvidia/container-images/cuda/-/blob/master/dist
+# ROCm Profiling Tools
+# Required by PyTorch profiler for GPU profiling on AMD hardware.
 # -----------------------------------------------------------------------------
-RUN --mount=type=cache,target=/var/cache/dnf,sharing=locked,id=odh-base-containers-cuda-dnf \
-    dnf install -y --setopt=keepcache=1 ${NV_CUDNN_PACKAGE}
+RUN --mount=type=cache,target=/var/cache/dnf,sharing=locked,id=odh-base-containers-rocm-dnf \
+    dnf install -y --setopt=keepcache=1 rocprofiler
 
 # -----------------------------------------------------------------------------
-# PyTorch CUDA Libraries (profiling, structured sparsity, sparse solver)
-# Required by PyTorch profiler and ML workloads; present in ODH notebooks.
+# ROCm HIP SDK (toolkit)
+# Provides hipcc compiler and development headers for building HIP code.
 # -----------------------------------------------------------------------------
-RUN --mount=type=cache,target=/var/cache/dnf,sharing=locked,id=odh-base-containers-cuda-dnf \
-    dnf install -y --setopt=keepcache=1 \
-        cuda-cupti-${CUDA_MAJOR_MINOR} \
-        libcusparselt0 \
-        libcudss0-cuda-${CUDA_MAJOR}
-
-ENV XLA_FLAGS=--xla_gpu_cuda_data_dir=/usr/local/cuda
+RUN --mount=type=cache,target=/var/cache/dnf,sharing=locked,id=odh-base-containers-rocm-dnf \
+    dnf -y install --setopt=keepcache=1 rocm-hip-sdk
 
 # -----------------------------------------------------------------------------
-# CUDA Toolkit
+# ROCm Shared Library Configuration
+# Register ROCm libraries with the dynamic linker so they are discoverable
+# via ldconfig. ROCm binaries also have rpath set, but ld.so.conf.d ensures
+# consistent behavior for all consumers.
+# Ref: https://rocm.docs.amd.com/projects/install-on-linux/en/latest/install/post-install.html#configure-rocm-shared-objects
 # -----------------------------------------------------------------------------
-RUN --mount=type=cache,target=/var/cache/dnf,sharing=locked,id=odh-base-containers-cuda-dnf \
-    dnf -y install --setopt=keepcache=1 cuda-toolkit-${CUDA_MAJOR_MINOR}
+RUN echo "${ROCM_HOME}/lib" > /etc/ld.so.conf.d/rocm.conf && \
+    ldconfig
 
 # -----------------------------------------------------------------------------
 # Environment (consistent with Python base image)
@@ -210,7 +188,7 @@ RUN python -m pip install --no-cache-dir --require-hashes -r /tmp/requirements-b
 
 # uv configuration (system-wide)
 # Note: PIP_EXTRA_INDEX_URL is intentionally omitted from uv.toml because
-# UV_TORCH_BACKEND is uv's native mechanism for PyTorch CUDA wheel resolution.
+# UV_TORCH_BACKEND is uv's native mechanism for PyTorch ROCm wheel resolution.
 # torch-backend is written to uv.toml (not ENV) to avoid uv erroring on empty values.
 # Downstream builds can disable by omitting UV_TORCH_BACKEND or rebuilding uv.toml.
 RUN mkdir -p /etc/uv && \
@@ -249,25 +227,23 @@ ARG VCS_REF
 ARG VERSION
 ARG PYTHON_VERSION
 
-LABEL name="odh-midstream-cuda-base" \
+LABEL name="odh-midstream-rocm-base" \
       version="${VERSION}" \
-      summary="ODH CUDA Base Image" \
-      description="CentOS Stream 9 with CUDA and Python for Open Data Hub workloads" \
-      io.k8s.display-name="ODH CUDA Base" \
-      io.k8s.description="CentOS Stream 9 with CUDA and Python for Open Data Hub workloads" \
-      io.openshift.tags="cuda,python,ai,ml,gpu,c9s" \
+      summary="ODH ROCm Base Image" \
+      description="CentOS Stream 9 with ROCm and Python for Open Data Hub workloads" \
+      io.k8s.display-name="ODH ROCm Base" \
+      io.k8s.description="CentOS Stream 9 with ROCm and Python for Open Data Hub workloads" \
+      io.openshift.tags="rocm,python,ai,ml,gpu,c9s" \
       org.opencontainers.image.created="${BUILD_DATE}" \
       org.opencontainers.image.revision="${VCS_REF}" \
       org.opencontainers.image.version="${VERSION}" \
-      org.opencontainers.image.title="ODH CUDA Base Image" \
-      org.opencontainers.image.description="CentOS Stream 9 with CUDA and Python for Open Data Hub workloads" \
+      org.opencontainers.image.title="ODH ROCm Base Image" \
+      org.opencontainers.image.description="CentOS Stream 9 with ROCm and Python for Open Data Hub workloads" \
       org.opencontainers.image.source="https://github.com/opendatahub-io/base-containers" \
       org.opencontainers.image.vendor="Open Data Hub" \
       org.opencontainers.image.licenses="Apache-2.0" \
-      com.nvidia.cuda.version="${CUDA_VERSION}" \
-      com.nvidia.cudnn.version="${NV_CUDNN_VERSION}" \
-      com.nvidia.nccl.version="${NCCL_VERSION}" \
-      com.opendatahub.accelerator="cuda" \
+      com.amd.rocm.version="${ROCM_VERSION}" \
+      com.opendatahub.accelerator="rocm" \
       com.opendatahub.python="${PYTHON_VERSION}"
 
 # -----------------------------------------------------------------------------
@@ -294,7 +270,7 @@ WORKDIR /opt/app-root/src
 #
 # Example Dockerfile that extends this base:
 #
-#   FROM odh-midstream-cuda-base:${CUDA_MAJOR_MINOR_DOT}-py312
+#   FROM odh-midstream-rocm-base:${ROCM_MAJOR_MINOR_DOT}-py312
 #
 #   # Install dependencies (pip and uv are pre-configured with package indexes)
 #   COPY requirements.txt .

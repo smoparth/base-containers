@@ -10,18 +10,18 @@ metadata:
     pipelinesascode.tekton.dev/max-keep-runs: "3"
     pipelinesascode.tekton.dev/on-cel-expression: |
       event == "pull_request" && target_branch == "main" && (
-        'python/3.12/**'.pathChanged() ||
+        'rocm/7.1/**'.pathChanged() ||
         'requirements-build.txt'.pathChanged() ||
         'scripts/fix-permissions'.pathChanged() ||
         '.dockerignore'.pathChanged() ||
-        '.tekton/odh-midstream-python-base-3-12-pull-request.yaml'.pathChanged()
+        '.tekton/odh-midstream-rocm-base-7-1-pull-request.yaml'.pathChanged()
       )
   creationTimestamp: null
   labels:
     appstudio.openshift.io/application: odh-base-containers
-    appstudio.openshift.io/component: odh-midstream-python-base-3-12
+    appstudio.openshift.io/component: odh-midstream-rocm-base-7-1
     pipelines.appstudio.openshift.io/type: build
-  name: odh-midstream-python-base-3-12-on-pull-request
+  name: odh-midstream-rocm-base-7-1-on-pull-request
   namespace: open-data-hub-tenant
 spec:
   timeouts:
@@ -32,20 +32,45 @@ spec:
   - name: revision
     value: '{{revision}}'
   - name: output-image
-    value: quay.io/opendatahub/odh-midstream-python-base-3-12:on-pr-{{revision}}
+    value: quay.io/opendatahub/odh-midstream-rocm-base-7-1:on-pr-{{revision}}
   - name: image-expires-after
     value: 5d
   - name: build-platforms
     value:
     - linux/x86_64
   - name: dockerfile
-    value: python/3.12/Containerfile
+    value: rocm/7.1/Containerfile
   - name: build-args-file
-    value: python/3.12/app.conf
+    value: rocm/7.1/app.conf
   pipelineRef:
     name: odh-base-containers-pull-request
+  taskRunSpecs:
+    - pipelineTaskName: clair-scan
+      stepSpecs:
+        - name: get-vulnerabilities
+          computeResources:
+            requests:
+              memory: 4Gi
+            limits:
+              memory: 8Gi
+        - name: oci-attach-report
+          computeResources:
+            requests:
+              memory: 4Gi
+            limits:
+              memory: 8Gi
+    - pipelineTaskName: ecosystem-cert-preflight-checks
+      stepSpecs:
+        - name: app-check
+          computeResources:
+            requests:
+              memory: 16Gi
+              cpu: '8'
+            limits:
+              memory: 20Gi
+              cpu: '8'
   taskRunTemplate:
-    serviceAccountName: build-pipeline-odh-midstream-python-base-3-12
+    serviceAccountName: build-pipeline-odh-midstream-rocm-base-7-1
   workspaces:
   - name: git-auth
     secret:

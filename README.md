@@ -14,7 +14,8 @@ For development setup and workflow, see [docs/DEVELOPMENT.md](docs/DEVELOPMENT.m
 | Type   | Versions               | Base OS          |
 |--------|------------------------|------------------|
 | Python | 3.12                   | UBI 9            |
-| CUDA   | 12.8, 12.9, 13.0, 13.1 | CentOS Stream 9  |
+| CUDA   | 12.8, 12.9, 13.0, 13.1, 13.2 | CentOS Stream 9  |
+| ROCm   | 6.4, 7.1               | CentOS Stream 9  |
 
 ## Pulling Base Images
 
@@ -39,13 +40,29 @@ podman pull quay.io/opendatahub/odh-midstream-python-base-3-12
 | 12.9 | `quay.io/opendatahub/odh-midstream-cuda-base-12-9` | [View on Quay.io](https://quay.io/repository/opendatahub/odh-midstream-cuda-base-12-9) |
 | 13.0 | `quay.io/opendatahub/odh-midstream-cuda-base-13-0` | [View on Quay.io](https://quay.io/repository/opendatahub/odh-midstream-cuda-base-13-0) |
 | 13.1 | `quay.io/opendatahub/odh-midstream-cuda-base-13-1` | [View on Quay.io](https://quay.io/repository/opendatahub/odh-midstream-cuda-base-13-1) |
+| 13.2 | `quay.io/opendatahub/odh-midstream-cuda-base-13-2` | [View on Quay.io](https://quay.io/repository/opendatahub/odh-midstream-cuda-base-13-2) |
 
 ```bash
 # Pull CUDA 12.8 base image
 podman pull quay.io/opendatahub/odh-midstream-cuda-base-12-8
 
-# Pull CUDA 13.1 base image
-podman pull quay.io/opendatahub/odh-midstream-cuda-base-13-1
+# Pull CUDA 13.2 base image
+podman pull quay.io/opendatahub/odh-midstream-cuda-base-13-2
+```
+
+### ROCm Images
+
+| Version | Image | Quay.io Repository |
+|---------|-------|-------------------|
+| 6.4 | `quay.io/opendatahub/odh-midstream-rocm-base-6-4` | [View on Quay.io](https://quay.io/repository/opendatahub/odh-midstream-rocm-base-6-4) |
+| 7.1 | `quay.io/opendatahub/odh-midstream-rocm-base-7-1` | [View on Quay.io](https://quay.io/repository/opendatahub/odh-midstream-rocm-base-7-1) |
+
+```bash
+# Pull ROCm 6.4 base image (x86_64 only)
+podman pull quay.io/opendatahub/odh-midstream-rocm-base-6-4
+
+# Pull ROCm 7.1 base image (x86_64 only)
+podman pull quay.io/opendatahub/odh-midstream-rocm-base-7-1
 ```
 
 ## Repository Structure
@@ -55,6 +72,8 @@ Each image type has version-specific directories containing a `Containerfile` an
 ```text
 cuda/<version>/Containerfile      # CUDA image definition
 cuda/<version>/app.conf           # CUDA build arguments
+rocm/<version>/Containerfile      # ROCm image definition
+rocm/<version>/app.conf           # ROCm build arguments
 python/<version>/Containerfile    # Python image definition
 python/<version>/app.conf         # Python build arguments
 ```
@@ -68,7 +87,7 @@ python/<version>/app.conf         # Python build arguments
 ./scripts/build.sh <type>-<version>    # e.g., cuda-12.8, python-3.12
 
 # Build all versions of a type
-./scripts/build.sh <type>              # e.g., cuda, python
+./scripts/build.sh <type>              # e.g., cuda, rocm, python
 
 # Build everything
 ./scripts/build.sh all
@@ -91,15 +110,17 @@ podman build -t odh-midstream-cuda-base:12.8-py312 \
   -f cuda/12.8/Containerfile .
 ```
 
-## Why Two Base Images?
+## Why Different Base Images?
 
 | Template | Base | Reason |
 |----------|------|--------|
 | Python (CPU) | UBI 9 | Smaller footprint, Red Hat supported |
 | CUDA (GPU) | CentOS Stream 9 | CUDA requires OpenGL/mesa libs not in UBI 9 |
+| ROCm (GPU) | CentOS Stream 9 | ROCm packages need CentOS Stream 9 / RHEL 9 repos |
 
 **Note:** 
 * CUDA packages fail on UBI 9 due to missing dependencies (OpenGL, mesa libs). CentOS Stream 9 includes these libraries.
+* ROCm images are x86_64 only — AMD does not provide ARM64 ROCm packages.
 * Python images remain on UBI 9 to minimize migration impact. A unified CentOS Stream 9 base for all images may be considered in the future.
 
 ## Common Properties
@@ -142,25 +163,29 @@ COPY --chown=1001:0 . .
 CMD ["python", "train.py"]
 ```
 
+### ROCm Application
+
+```dockerfile
+FROM quay.io/opendatahub/odh-midstream-rocm-base-6-4
+# Or ROCm 7.1: FROM quay.io/opendatahub/odh-midstream-rocm-base-7-1
+
+# pip and uv are pre-configured with PyPI + PyTorch ROCm indexes
+COPY requirements.txt .
+RUN pip install -r requirements.txt
+
+COPY --chown=1001:0 . .
+CMD ["python", "train.py"]
+```
+
 ## Adding New Versions
 
-Use the generation script to create a new version from the template:
-
 ```bash
-# Generate Containerfile from template
-./scripts/generate-containerfile.sh <type> <version>
-
-# Example: Add CUDA 13.2
-./scripts/generate-containerfile.sh cuda 13.2
-# Then create cuda/13.2/app.conf with version-specific values
-# Include CUDA_MAJOR, CUDA_MAJOR_MINOR, CUDA_MAJOR_MINOR_DOT
-# Get versions from: https://gitlab.com/nvidia/container-images/cuda/-/tree/master/dist
-
-# Example: Add Python 3.13
-./scripts/generate-containerfile.sh python 3.13
-# Then create python/3.13/app.conf with version-specific values
-# Include PYTHON_VERSION and PYTHON_VERSION_NODOT
+./scripts/generate-containerfile.sh <type> <version>   # e.g., cuda 13.2, rocm 6.5, python 3.13
 ```
+
+See the detailed guides:
+- [Adding a Python version](docs/ADDING-PYTHON-VERSION.md)
+- [Adding a ROCm version](docs/ADDING-ROCM-VERSION.md)
 
 ## Build Arguments
 
